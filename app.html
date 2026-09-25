@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LayoffMath - how long does the money last</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#0f141a; color:#eaeef2; min-height:100vh; }
+  .wrap { max-width:860px; margin:0 auto; padding:28px 20px 80px; }
+  header { display:flex; justify-content:space-between; align-items:center; margin-bottom:22px; }
+  header h1 { font-size:22px; } header h1 span { color:#6ea8d8; }
+  header a { color:#8b96a1; text-decoration:none; font-size:14px; }
+  .card { background:#151d26; border:1px solid #2c3d4e; border-radius:12px; padding:18px; margin-bottom:18px; }
+  label { font-size:12px; color:#8b96a1; display:block; margin-bottom:4px; }
+  input { background:#0f141a; border:1px solid #36495c; border-radius:8px; color:#eaeef2; padding:9px 10px; font-size:14px; width:100%; }
+  button { background:#6ea8d8; border:none; color:#0a1824; font-weight:700; padding:11px 22px; border-radius:9px; font-size:14px; cursor:pointer; }
+  .row4 { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:12px; margin-bottom:12px; }
+  h3 { font-size:14px; color:#bcc7d1; margin-bottom:10px; }
+  .verdict { background:#13202e; border:1px solid #2e4a63; border-radius:10px; padding:14px 16px; margin-bottom:14px; font-size:15px; line-height:1.6; }
+  .verdict b { color:#6ea8d8; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+  .stat { background:#0f141a; border:1px solid #2c3d4e; border-radius:10px; padding:12px; }
+  .stat .v { font-size:20px; font-weight:700; color:#fff; }
+  .stat .k { font-size:11px; color:#8b96a1; margin-top:2px; line-height:1.4; }
+  .err { color:#ff8a8a; font-size:13px; margin-top:8px; }
+  .note { color:#5c6770; font-size:12px; margin-top:10px; }
+  .bar { height:14px; border-radius:7px; background:#1c2836; overflow:hidden; margin-top:6px; }
+  .bar i { display:block; height:100%; background:#6ea8d8; border-radius:7px; }
+  .barlbl { display:flex; justify-content:space-between; font-size:12px; color:#8b96a1; margin-top:14px; }
+  @media (max-width:640px){ .row4 { grid-template-columns:1fr 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>Layoff<span>Math</span></h1><a href="index.html">home</a></header>
+
+  <div class="card">
+    <h3>The money coming in</h3>
+    <div class="row4">
+      <div><label>Savings ($)</label><input id="sav" type="number" value="8000"></div>
+      <div><label>Take-home pay ($/week)</label><input id="pay" type="number" value="1200"></div>
+      <div><label>Severance (weeks of pay)</label><input id="sev" type="number" value="4"></div>
+      <div><label>Unemployment ($/week)</label><input id="uiw" type="number" value="450"></div>
+    </div>
+    <h3>The money going out</h3>
+    <div class="row4">
+      <div><label>Essentials ($/mo)</label><input id="ess" type="number" value="2400"></div>
+      <div><label>Everything else ($/mo)</label><input id="ext" type="number" value="900"></div>
+      <div><label>Benefits last (weeks)</label><input id="uiwks" type="number" value="26"></div>
+      <div><label>Job hunt could take (months)</label><input id="mtl" type="number" value="5"></div>
+    </div>
+    <button id="go">How long does the money last?</button>
+    <div class="err" id="err"></div>
+    <div class="note">Take-home numbers, not gross - taxes are already out. Essentials = rent, food, insurance, debt minimums. Everything else = what you could pause if you had to.</div>
+  </div>
+
+  <div id="out" style="display:none">
+    <div class="verdict" id="verdict"></div>
+    <div class="card">
+      <div class="stats" id="stats"></div>
+    </div>
+    <div class="card">
+      <h3>Runway against a 12-month horizon</h3>
+      <div class="barlbl"><span>As-is spending</span><span id="b1"></span></div>
+      <div class="bar"><i id="bar1"></i></div>
+      <div class="barlbl"><span>Essentials only</span><span id="b2"></span></div>
+      <div class="bar"><i id="bar2"></i></div>
+      <div class="note">Bars cap at 12 months. The unemployment window slows the early burn; when it ends, the drain speeds up.</div>
+    </div>
+  </div>
+</div>
+<script src="engine.js"></script>
+<script>
+(function(){
+  var F = ['sav','pay','sev','uiw','ess','ext','uiwks','mtl'];
+  var KEY = 'layoffmath-settings';
+  function save(){ var o={}; F.forEach(function(f){o[f]=document.getElementById(f).value;}); try{localStorage.setItem(KEY,JSON.stringify(o));}catch(e){} }
+  function load(){ try{ var o=JSON.parse(localStorage.getItem(KEY)||'null'); if(o) F.forEach(function(f){ if(o[f]!==undefined) document.getElementById(f).value=o[f]; }); }catch(e){} }
+  function fmt$(n){ return '$' + Number(n).toLocaleString('en-US',{maximumFractionDigits:0}); }
+  function fmtM(m){ return m === null ? 'indefinite' : m.toFixed(1) + ' months'; }
+  function run(){
+    var errEl = document.getElementById('err'); errEl.textContent = '';
+    var o = {
+      savings: document.getElementById('sav').value,
+      weeklyPay: document.getElementById('pay').value,
+      severanceWeeks: document.getElementById('sev').value,
+      uiWeekly: document.getElementById('uiw').value,
+      essentials: document.getElementById('ess').value,
+      extras: document.getElementById('ext').value,
+      uiWeeks: document.getElementById('uiwks').value,
+      monthsToLand: document.getElementById('mtl').value
+    };
+    var r;
+    try { r = LayoffMathEngine.analyze(o); } catch(e){ errEl.textContent = e.message; return; }
+    save();
+    var v = document.getElementById('verdict');
+    var msg = 'Day-one cash: <b>' + fmt$(r.cashAtDay0) + '</b> (savings + ' + fmt$(r.severance) + ' severance). ';
+    msg += 'Spending as-is, the money lasts <b>' + fmtM(r.runwayFull) + '</b>; on essentials only, <b>' + fmtM(r.runwayLean) + '</b>. ';
+    if (r.survivesFull) {
+      msg += 'Your ' + r.monthsToLand + '-month job-hunt window is safe even without cutting anything.';
+    } else if (r.survivesLean) {
+      msg += 'To survive a ' + r.monthsToLand + '-month hunt, cut <b>' + fmt$(r.requiredMonthlyCut) + '/month</b> - roughly the non-essentials.';
+    } else {
+      msg += 'Even on essentials you come up <b>' + fmt$(r.leanGap) + ' short</b> over a ' + r.monthsToLand + '-month hunt. That gap needs income, not just cuts: gig work, negotiating more severance, or help.';
+    }
+    v.innerHTML = msg;
+    var s = document.getElementById('stats');
+    s.innerHTML = '';
+    var cells = [
+      [fmt$(r.cashAtDay0), 'cash on day one'],
+      [fmt$(r.burnFull) + '/mo', 'current burn'],
+      [fmt$(r.uiMonthly) + '/mo', 'unemployment while it lasts (' + r.uiMonths + ' mo)'],
+      [fmtM(r.runwayFull), 'runway as-is'],
+      [fmtM(r.runwayLean), 'runway essentials-only'],
+      [r.survivesFull ? '$0' : fmt$(r.requiredMonthlyCut) + '/mo', 'monthly cut to survive the hunt']
+    ];
+    cells.forEach(function(c){
+      var d = document.createElement('div'); d.className = 'stat';
+      d.innerHTML = '<div class="v">' + c[0] + '</div><div class="k">' + c[1] + '</div>';
+      s.appendChild(d);
+    });
+    var cap = 12;
+    var p1 = r.runwayFull === null ? 100 : Math.min(100, r.runwayFull / cap * 100);
+    var p2 = r.runwayLean === null ? 100 : Math.min(100, r.runwayLean / cap * 100);
+    document.getElementById('bar1').style.width = p1 + '%';
+    document.getElementById('bar2').style.width = p2 + '%';
+    document.getElementById('b1').textContent = fmtM(r.runwayFull);
+    document.getElementById('b2').textContent = fmtM(r.runwayLean);
+    document.getElementById('out').style.display = 'block';
+  }
+  document.getElementById('go').addEventListener('click', run);
+  load();
+})();
+</script>
+</body>
+</html>
